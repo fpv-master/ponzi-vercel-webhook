@@ -1,31 +1,67 @@
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+const axios = require("axios");
+
+module.exports = async (req, res) => {
+  if (req.method !== "POST") {
+    return res.status(200).json({ status: "ok" });
   }
 
-  const body = req.body;
+  console.log("Webhook received");
+
+  const transactions = req.body;
+
+  if (!Array.isArray(transactions)) {
+    console.error("Invalid webhook format: expected an array");
+    return res.status(400).json({ error: "Invalid data format" });
+  }
 
   try {
-    console.log('Webhook received');
+    for (const tx of transactions) {
+      const instructions =
+        tx?.transaction?.message?.instructions || [];
 
-    const transactions = Array.isArray(body) ? body : [body];
-    transactions.forEach(tx => {
-      const logs = tx.meta?.logMessages || [];
-      const mintInstructions = logs.filter(line =>
-        line.includes('InitializeMint') || line.includes('MintTo')
-      );
+      for (const ix of instructions) {
+        const data = ix?.parsed?.info;
 
-      if (mintInstructions.length > 0) {
-        const balances = tx.meta?.postTokenBalances || [];
-        balances.forEach(balance => {
-          console.log(`[NEW TOKEN DETECTED]: ${balance.mint}`);
-        });
+        if (
+          ix?.parsed?.type === "initializeMint" &&
+          data?.mint
+        ) {
+          const mint = data.mint;
+          const solscanUrl = `https://solscan.io/token/${mint}`;
+
+          const message = `?? *®¢ë© â®ª¥­ ®¡­ àã¦¥­!*\n\nMint: \`${mint}\`\n[‘¬®âà¥âì ¢ Solscan](${solscanUrl})`;
+
+          await sendTelegramMessage(message);
+
+          console.log(`[NEW TOKEN DETECTED]: ${mint}`);
+        }
       }
-    });
+    }
 
-    res.status(200).json({ status: 'ok' });
-  } catch (error) {
-    console.error('Webhook error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    return res.status(200).json({ status: "ok" });
+  } catch (err) {
+    console.error("Webhook handler error:", err);
+    return res.status(500).json({ error: "Server error" });
   }
-}
+};
+
+// ===========================
+// ”“Š–ˆŸ „‹Ÿ Ž’€‚Šˆ ‚ TELEGRAM
+// ===========================
+
+const sendTelegramMessage = async (text) => {
+  try {
+    const token = process.env.TELEGRAM_BOT_TOKEN;
+    const chatId = process.env.TELEGRAM_CHAT_ID;
+
+    const url = `https://api.telegram.org/bot${token}/sendMessage`;
+
+    await axios.post(url, {
+      chat_id: chatId,
+      text: text,
+      parse_mode: "Markdown"
+    });
+  } catch (error) {
+    console.error("Žè¨¡ª  ¯à¨ ®â¯à ¢ª¥ ¢ Telegram:", error.message);
+  }
+};
