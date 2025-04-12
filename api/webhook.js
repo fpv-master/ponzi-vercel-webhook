@@ -1,54 +1,6 @@
-const axios = require("axios");
+import axios from "axios";
 
-module.exports = async (req, res) => {
-  if (req.method !== "POST") {
-    return res.status(200).json({ status: "ok" });
-  }
-
-  console.log("Webhook received");
-
-  const transactions = req.body;
-
-  if (!Array.isArray(transactions)) {
-    console.error("Invalid webhook format: expected an array");
-    return res.status(400).json({ error: "Invalid data format" });
-  }
-
-  try {
-    for (const tx of transactions) {
-      const instructions =
-        tx?.transaction?.message?.instructions || [];
-
-      for (const ix of instructions) {
-        const data = ix?.parsed?.info;
-
-        if (
-          ix?.parsed?.type === "initializeMint" &&
-          data?.mint
-        ) {
-          const mint = data.mint;
-          const solscanUrl = `https://solscan.io/token/${mint}`;
-
-          const message = `?? *Новый токен обнаружен!*\n\nMint: \`${mint}\`\n[Смотреть в Solscan](${solscanUrl})`;
-
-          await sendTelegramMessage(message);
-
-          console.log(`[NEW TOKEN DETECTED]: ${mint}`);
-        }
-      }
-    }
-
-    return res.status(200).json({ status: "ok" });
-  } catch (err) {
-    console.error("Webhook handler error:", err);
-    return res.status(500).json({ error: "Server error" });
-  }
-};
-
-// ===========================
-// ФУНКЦИЯ ДЛЯ ОТПРАВКИ В TELEGRAM
-// ===========================
-
+// Функция отправки сообщений в Telegram
 const sendTelegramMessage = async (text) => {
   try {
     const token = process.env.TELEGRAM_BOT_TOKEN;
@@ -65,3 +17,38 @@ const sendTelegramMessage = async (text) => {
     console.error("Ошибка при отправке в Telegram:", error.message);
   }
 };
+
+// Основной обработчик вебхука
+export default async function handler(req, res) {
+  if (req.method !== "POST") {
+    return res.status(405).json({ error: "Method not allowed" });
+  }
+
+  console.log("Webhook received");
+
+  const data = req.body;
+
+  try {
+    const logs = data?.[0]?.meta?.logMessages || [];
+
+    // Ищем инструкцию создания токена
+    const detected = logs.find((msg) =>
+      msg.includes("Instruction: InitializeMint")
+    );
+
+    if (detected) {
+      const signature = data?.[0]?.transaction?.signatures?.[0] || "неизвестно";
+      const link = `https://solscan.io/tx/${signature}`;
+
+      const message = `?? *Новый токен обнаружен!*\n\n[Посмотреть в Solscan](${link})`;
+      console.log("NEW TOKEN DETECTED:", signature);
+
+      await sendTelegramMessage(message);
+    }
+
+    return res.status(200).json({ status: "ok" });
+  } catch (err) {
+    console.error("Webhook error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+}
